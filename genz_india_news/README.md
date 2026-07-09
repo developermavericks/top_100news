@@ -77,8 +77,10 @@ python fetch_and_score.py          # run once immediately, then daily at
 Outputs land in `output/`:
 - `scored_headlines.xlsx` -- one sheet per sector, all scoring columns, for
   your own review and as the basis for retraining
-- `survey_clean.xlsx` -- respondent-facing export: just `HeadlineID`,
-  `Headline`, `Sector`, no scores visible
+- `survey_clean.xlsx` -- respondent-facing export: `HeadlineID`, `Headline`,
+  `Sector`, and a blank `Relevant` column with an in-cell Yes/No dropdown
+  (Excel data validation) for the respondent to fill in directly -- no
+  scores visible
 
 A flat `data/latest_scored_signals.csv` is also written (overwritten every
 run) with every granular sub-signal per headline -- this is what
@@ -86,18 +88,21 @@ run) with every granular sub-signal per headline -- this is what
 
 ### Stage 4: ingest survey responses
 
-Once you've picked a survey tool and collected responses, drop a CSV/Excel
-file with columns `HeadlineID, Response` (1-5 interest scale) into
-`data/survey_responses/`, then run:
+Once respondents have filled in the `Relevant` dropdown (Yes/No) in
+`survey_clean.xlsx`, drop that file (or a CSV with the same `HeadlineID,
+Relevant` columns) into `data/survey_responses/`, then run:
 
 ```bash
 python ingest_responses.py
 ```
 
-This joins responses back against `data/latest_scored_signals.csv` by
-`HeadlineID` and appends the combined rows (every scoring sub-signal + the
-human response + a freshness feature) to `data/training_data.csv`, which
-accumulates across survey cycles and is never overwritten.
+`Relevant` (Yes/No) is converted to a binary `Response` column (Yes=1,
+No=0) along the way -- rows left blank or filled in with anything other
+than Yes/No are dropped with a warning rather than silently miscounted.
+The result is joined against `data/latest_scored_signals.csv` by
+`HeadlineID` and appended (every scoring sub-signal + the binary response +
+a freshness feature) to `data/training_data.csv`, which accumulates across
+survey cycles and is never overwritten.
 
 ### Stage 5: retrain weights
 
@@ -105,22 +110,26 @@ accumulates across survey cycles and is never overwritten.
 python retrain_weights.py
 ```
 
-Fits a regression (`LinearRegression`, or `LogisticRegression` if responses
-are binarized) from the individual signal scores onto the real survey
-`Response`, prints feature importances (which signal actually predicts
-interest), backs up `config/scoring_weights.json` to a timestamped `.bak`
-file, and writes new weights derived from the fit. Safe to re-run
-repeatedly as more survey data accumulates -- this is the mechanism that
-lets the scoring get smarter over time, in place of a live engagement API.
+Fits a regression (`LogisticRegression`, since `Response` is binary
+Yes/No) from the individual signal scores onto the real survey `Response`,
+prints feature importances (which signal actually predicts relevance),
+backs up `config/scoring_weights.json` to a timestamped `.bak` file, and
+writes new weights derived from the fit. Safe to re-run repeatedly as more
+survey data accumulates -- this is the mechanism that lets the scoring get
+smarter over time, in place of a live engagement API.
 
 ## Where a survey tool plugs in
 
-`ingest_responses.py` only cares about ending up with a CSV/Excel file with
-`HeadlineID` and `Response` columns in `data/survey_responses/`. Whatever
-survey tool you pick (Google Forms, Typeform, a WhatsApp form, etc.), the
-respondent-facing sheet is `output/survey_clean.xlsx` -- export/import that
-into your tool, then map its response export back to `HeadlineID, Response`
-before dropping it into `data/survey_responses/`.
+The simplest path: hand out `output/survey_clean.xlsx` directly (e.g. via
+email or a shared drive) and have respondents pick Yes/No from the
+in-cell dropdown next to each headline, then drop the filled-in file back
+into `data/survey_responses/` as-is.
+
+If you'd rather use a dedicated survey tool (Google Forms, Typeform, a
+WhatsApp form, etc.), `ingest_responses.py` only cares about ending up with
+a CSV/Excel file with `HeadlineID` and `Relevant` (Yes/No) columns in
+`data/survey_responses/` -- map that tool's response export back to those
+two columns before dropping it in.
 
 ## Config files
 

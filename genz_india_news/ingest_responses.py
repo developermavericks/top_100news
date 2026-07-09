@@ -3,7 +3,12 @@ signals from the most recent fetch_and_score.py run, accumulating into
 data/training_data.csv for later retraining.
 
 Expects response files in data/survey_responses/ (CSV or Excel) with columns:
-    HeadlineID, Response      (Response: 1-5 interest scale)
+    HeadlineID, Relevant      (Relevant: "Yes"/"No", filled in via the
+                               in-cell dropdown in output/survey_clean.xlsx)
+
+Relevant is converted to a binary Response column (Yes=1, No=0) before
+being appended to training_data.csv, which is what retrain_weights.py
+expects as its target column.
 
 Run manually once survey data exists:
     python ingest_responses.py
@@ -12,13 +17,23 @@ Run manually once survey data exists:
 from __future__ import annotations
 
 import logging
+import warnings
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
 from config_utils import load_scoring_weights, load_settings, setup_logging
+
+# pandas 2.2.x's "ChainedAssignmentError" FutureWarning fires even on freshly
+# .copy()'d DataFrames doing plain, correct column assignment (verified: the
+# same warning fires on a bare in-memory DataFrame with no file I/O involved
+# at all) -- a known false positive in that warning's heuristic, not a real
+# risk in this code. Silenced narrowly by message rather than broadly by
+# category so any other FutureWarning still surfaces normally.
+warnings.filterwarnings("ignore", message=".*ChainedAssignmentError.*", category=FutureWarning)
 
 logger = logging.getLogger("genz_india_news.ingest_responses")
 
@@ -26,12 +41,24 @@ RESPONSES_DIR = Path("data/survey_responses")
 RAW_SIGNALS_PATH = Path("data/latest_scored_signals.csv")
 TRAINING_DATA_PATH = Path("data/training_data.csv")
 
-REQUIRED_RESPONSE_COLUMNS = {"HeadlineID", "Response"}
+REQUIRED_RESPONSE_COLUMNS = {"HeadlineID", "Relevant"}
+
+_YES_NO_TO_BINARY = {"yes": 1, "no": 0}
+
+
+def _relevant_to_response(value: Any) -> float:
+    """Map a Yes/No dropdown value to 1/0. Blank/unanswered or unrecognized
+    values map to NaN so they can be dropped rather than silently counted."""
+    text = str(value).strip().lower()
+    return _YES_NO_TO_BINARY.get(text, float("nan"))
 
 
 def load_response_files(responses_dir: Path) -> pd.DataFrame:
     """Load and concatenate every CSV/Excel file in responses_dir that has
-    the required HeadlineID/Response columns. Skips and warns on bad files."""
+    the required HeadlineID/Relevant columns, converting Relevant (Yes/No)
+    into a binary Response column. Skips and warns on bad files, and drops
+    rows the respondent left blank or filled in with something other than
+    Yes/No."""
     frames = []
     files = sorted(responses_dir.glob("*.csv")) + sorted(responses_dir.glob("*.xlsx"))
 
@@ -53,11 +80,21 @@ def load_response_files(responses_dir: Path) -> pd.DataFrame:
             )
             continue
 
-        df = df[["HeadlineID", "Response"]].copy()
+        df = df[["HeadlineID", "Relevant"]].copy()
         df["HeadlineID"] = df["HeadlineID"].astype(str).str.strip()
+        df["Response"] = df["Relevant"].apply(_relevant_to_response)
+
+        unanswered = df["Response"].isna().sum()
+        if unanswered > 0:
+            logger.warning(
+                "%d of %d rows in %s were blank/unrecognized (not Yes/No); dropping them.",
+                unanswered, len(df), path.name,
+            )
+        df = df.dropna(subset=["Response"]).drop(columns=["Relevant"])
+        df["Response"] = df["Response"].astype(int)
         df["SourceFile"] = path.name
         frames.append(df)
-        logger.info("Loaded %d responses from %s", len(df), path.name)
+        logger.info("Loaded %d valid responses from %s", len(df), path.name)
 
     if not frames:
         return pd.DataFrame(columns=["HeadlineID", "Response"])

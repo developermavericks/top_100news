@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 
 logger = logging.getLogger("genz_india_news.exporter")
 
@@ -25,7 +27,8 @@ FULL_COLUMNS = [
     "IndiaScore", "GenZAlphaScore", "FinalScore", "Sector",
 ]
 
-SURVEY_CLEAN_COLUMNS = ["HeadlineID", "Headline", "Sector"]
+SURVEY_CLEAN_COLUMNS = ["HeadlineID", "Headline", "Sector", "Relevant"]
+_RELEVANT_COLUMN_LETTER = get_column_letter(SURVEY_CLEAN_COLUMNS.index("Relevant") + 1)
 
 # All granular sub-signals, not just the rolled-up scores shown in the
 # survey workbook. ingest_responses.py needs these to build training_data.csv
@@ -84,8 +87,10 @@ def export_survey_clean(
     output_dir: str,
     filename: str = "survey_clean.xlsx",
 ) -> Path:
-    """Write the respondent-facing export: HeadlineID, Headline, Sector only,
-    no scores visible. One sheet per sector, matching the full workbook."""
+    """Write the respondent-facing export: HeadlineID, Headline, Sector, and
+    a blank "Relevant" column with an in-cell Yes/No dropdown for respondents
+    to fill in directly in Excel. No scores visible. One sheet per sector,
+    matching the full workbook."""
     output_path = Path(output_dir) / filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -96,12 +101,22 @@ def export_survey_clean(
                     "HeadlineID": article["headline_id"],
                     "Headline": article["headline"],
                     "Sector": sector,
+                    "Relevant": "",
                 }
                 for article in ranked_articles
             ]
             df = pd.DataFrame(rows, columns=SURVEY_CLEAN_COLUMNS)
             sheet_name = _safe_sheet_name(sector)
             df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            if len(df) > 0:
+                worksheet = writer.sheets[sheet_name]
+                dropdown = DataValidation(type="list", formula1='"Yes,No"', allow_blank=True)
+                dropdown.error = "Please select Yes or No from the dropdown."
+                dropdown.prompt = "Is this headline relevant/interesting to you?"
+                cell_range = f"{_RELEVANT_COLUMN_LETTER}2:{_RELEVANT_COLUMN_LETTER}{len(df) + 1}"
+                dropdown.add(cell_range)
+                worksheet.add_data_validation(dropdown)
 
     logger.info("Wrote survey-clean export to %s", output_path)
     return output_path
