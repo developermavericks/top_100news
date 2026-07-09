@@ -1,0 +1,7 @@
+feedparser==6.0.12
+pandas==2.2.2
+openpyxl==3.1.2
+requests==2.34.2
+schedule==1.2.2
+scikit-learn==1.8.0
+streamlit==1.53.1

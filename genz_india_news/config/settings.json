@@ -1,0 +1,18 @@
+{
+  "candidate_pool_size": 200,
+  "max_headlines_per_sector": 100,
+  "locale": {
+    "hl": "en",
+    "gl": "IN",
+    "ceid": "IN:en"
+  },
+  "request": {
+    "timeout_seconds": 10,
+    "max_retries": 3,
+    "backoff_base_seconds": 2,
+    "delay_between_requests_seconds": 1
+  },
+  "output_dir": "output",
+  "log_file": "logs/pipeline.log",
+  "schedule_time": "07:00"
+}

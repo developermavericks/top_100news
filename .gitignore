@@ -1,0 +1,23 @@
+# Claude Code local tool config -- not project content
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Streamlit local config (may contain secrets)
+.streamlit/
+
+# Generated pipeline output -- keep directories (via .gitkeep), not contents
+genz_india_news/output/*.xlsx
+genz_india_news/data/*.csv
+genz_india_news/data/survey_responses/*.csv
+genz_india_news/data/survey_responses/*.xlsx
+genz_india_news/logs/*.log
+genz_india_news/config/*.bak
+genz_india_news/config/*.json.*.bak
+
+# Env files (never commit secrets)
+.env
+*.env

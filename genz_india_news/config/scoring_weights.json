@@ -1,0 +1,14 @@
+{
+  "india_weight": 0.4,
+  "genz_weight": 0.6,
+  "genz_subsignal_weights": {
+    "w1_source": 0.5,
+    "w2_topic_keyword": 0.5
+  },
+  "india_subsignal_weights": {
+    "source_weight": 0.4,
+    "keyword_match_weight": 0.35,
+    "entity_weight": 0.25
+  },
+  "freshness_half_life_hours": 48
+}
