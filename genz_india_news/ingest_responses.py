@@ -3,8 +3,14 @@ signals from the most recent fetch_and_score.py run, accumulating into
 data/training_data.csv for later retraining.
 
 Expects response files in data/survey_responses/ (CSV or Excel) with columns:
-    HeadlineID, Relevant      (Relevant: "Yes"/"No", filled in via the
-                               in-cell dropdown in output/survey_clean.xlsx)
+    Headline, Relevant, Remark      (Relevant: "Yes"/"No", filled in via the
+                                      in-cell dropdown in output/survey_clean.xlsx;
+                                      Remark: optional free-text comment)
+
+There's no HeadlineID column in the respondent-facing sheet -- it's
+recomputed deterministically from the Headline text itself (the same hash
+fetch_and_score.py used to generate it originally), which is what this
+joins against data/latest_scored_signals.csv by.
 
 Relevant is converted to a binary Response column (Yes=1, No=0) before
 being appended to training_data.csv, which is what retrain_weights.py
@@ -26,6 +32,7 @@ from typing import Any
 import pandas as pd
 
 from config_utils import load_scoring_weights, load_settings, setup_logging
+from text_utils import headline_id
 
 # pandas 2.2.x's "ChainedAssignmentError" FutureWarning fires even on freshly
 # .copy()'d DataFrames doing plain, correct column assignment (verified: the
@@ -41,7 +48,7 @@ RESPONSES_DIR = Path("data/survey_responses")
 RAW_SIGNALS_PATH = Path("data/latest_scored_signals.csv")
 TRAINING_DATA_PATH = Path("data/training_data.csv")
 
-REQUIRED_RESPONSE_COLUMNS = {"HeadlineID", "Relevant"}
+REQUIRED_RESPONSE_COLUMNS = {"Headline", "Relevant"}
 
 _YES_NO_TO_BINARY = {"yes": 1, "no": 0}
 
@@ -55,16 +62,16 @@ def _relevant_to_response(value: Any) -> float:
 
 def load_response_files(responses_dir: Path) -> pd.DataFrame:
     """Load and concatenate every CSV/Excel file in responses_dir that has
-    the required HeadlineID/Relevant columns, converting Relevant (Yes/No)
-    into a binary Response column. Skips and warns on bad files, and drops
-    rows the respondent left blank or filled in with something other than
-    Yes/No."""
+    the required Headline/Relevant columns, recomputing HeadlineID from the
+    Headline text and converting Relevant (Yes/No) into a binary Response
+    column. Skips and warns on bad files, and drops rows the respondent left
+    blank or filled in with something other than Yes/No."""
     frames = []
     files = sorted(responses_dir.glob("*.csv")) + sorted(responses_dir.glob("*.xlsx"))
 
     if not files:
         logger.warning("No response files found in %s", responses_dir)
-        return pd.DataFrame(columns=["HeadlineID", "Response"])
+        return pd.DataFrame(columns=["HeadlineID", "Response", "Remark"])
 
     for path in files:
         try:
@@ -80,9 +87,12 @@ def load_response_files(responses_dir: Path) -> pd.DataFrame:
             )
             continue
 
-        df = df[["HeadlineID", "Relevant"]].copy()
-        df["HeadlineID"] = df["HeadlineID"].astype(str).str.strip()
+        remark_column = df["Remark"].fillna("").astype(str) if "Remark" in df.columns else ""
+
+        df = df[["Headline", "Relevant"]].copy()
+        df["HeadlineID"] = df["Headline"].astype(str).apply(headline_id)
         df["Response"] = df["Relevant"].apply(_relevant_to_response)
+        df["Remark"] = remark_column
 
         unanswered = df["Response"].isna().sum()
         if unanswered > 0:
@@ -90,14 +100,14 @@ def load_response_files(responses_dir: Path) -> pd.DataFrame:
                 "%d of %d rows in %s were blank/unrecognized (not Yes/No); dropping them.",
                 unanswered, len(df), path.name,
             )
-        df = df.dropna(subset=["Response"]).drop(columns=["Relevant"])
+        df = df.dropna(subset=["Response"]).drop(columns=["Relevant", "Headline"])
         df["Response"] = df["Response"].astype(int)
         df["SourceFile"] = path.name
         frames.append(df)
         logger.info("Loaded %d valid responses from %s", len(df), path.name)
 
     if not frames:
-        return pd.DataFrame(columns=["HeadlineID", "Response"])
+        return pd.DataFrame(columns=["HeadlineID", "Response", "Remark"])
 
     return pd.concat(frames, ignore_index=True)
 

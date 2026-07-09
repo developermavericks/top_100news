@@ -27,7 +27,7 @@ FULL_COLUMNS = [
     "IndiaScore", "GenZAlphaScore", "FinalScore", "Sector",
 ]
 
-SURVEY_CLEAN_COLUMNS = ["HeadlineID", "Headline", "Sector", "Relevant"]
+SURVEY_CLEAN_COLUMNS = ["Headline", "Sector", "Relevant", "Remark"]
 _RELEVANT_COLUMN_LETTER = get_column_letter(SURVEY_CLEAN_COLUMNS.index("Relevant") + 1)
 
 # All granular sub-signals, not just the rolled-up scores shown in the
@@ -87,10 +87,12 @@ def export_survey_clean(
     output_dir: str,
     filename: str = "survey_clean.xlsx",
 ) -> Path:
-    """Write the respondent-facing export: HeadlineID, Headline, Sector, and
-    a blank "Relevant" column with an in-cell Yes/No dropdown for respondents
-    to fill in directly in Excel. No scores visible. One sheet per sector,
-    matching the full workbook."""
+    """Write the respondent-facing export: Headline, Sector, a blank
+    "Relevant" column with an in-cell Yes/No dropdown, and a blank "Remark"
+    column for free-text comments. No HeadlineID and no scores visible --
+    ingest_responses.py recomputes the deterministic HeadlineID from the
+    Headline text itself, so dropping the column here loses nothing. One
+    sheet per sector, matching the full workbook."""
     output_path = Path(output_dir) / filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -98,10 +100,10 @@ def export_survey_clean(
         for sector, ranked_articles in sector_results.items():
             rows = [
                 {
-                    "HeadlineID": article["headline_id"],
                     "Headline": article["headline"],
                     "Sector": sector,
                     "Relevant": "",
+                    "Remark": "",
                 }
                 for article in ranked_articles
             ]

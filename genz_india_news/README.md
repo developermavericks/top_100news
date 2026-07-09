@@ -77,10 +77,12 @@ python fetch_and_score.py          # run once immediately, then daily at
 Outputs land in `output/`:
 - `scored_headlines.xlsx` -- one sheet per sector, all scoring columns, for
   your own review and as the basis for retraining
-- `survey_clean.xlsx` -- respondent-facing export: `HeadlineID`, `Headline`,
-  `Sector`, and a blank `Relevant` column with an in-cell Yes/No dropdown
-  (Excel data validation) for the respondent to fill in directly -- no
-  scores visible
+- `survey_clean.xlsx` -- respondent-facing export: `Headline`, `Sector`, a
+  blank `Relevant` column with an in-cell Yes/No dropdown (Excel data
+  validation), and a blank `Remark` column for free-text comments -- no
+  HeadlineID and no scores visible. (`ingest_responses.py` recomputes the
+  HeadlineID deterministically from the Headline text itself, so dropping
+  it from the visible sheet loses nothing.)
 
 A flat `data/latest_scored_signals.csv` is also written (overwritten every
 run) with every granular sub-signal per headline -- this is what
@@ -88,9 +90,10 @@ run) with every granular sub-signal per headline -- this is what
 
 ### Stage 4: ingest survey responses
 
-Once respondents have filled in the `Relevant` dropdown (Yes/No) in
-`survey_clean.xlsx`, drop that file (or a CSV with the same `HeadlineID,
-Relevant` columns) into `data/survey_responses/`, then run:
+Once respondents have filled in the `Relevant` dropdown (Yes/No, and
+optionally a `Remark`) in `survey_clean.xlsx`, drop that file (or a
+CSV/Excel with the same `Headline, Relevant` columns) into
+`data/survey_responses/`, then run:
 
 ```bash
 python ingest_responses.py
@@ -99,10 +102,12 @@ python ingest_responses.py
 `Relevant` (Yes/No) is converted to a binary `Response` column (Yes=1,
 No=0) along the way -- rows left blank or filled in with anything other
 than Yes/No are dropped with a warning rather than silently miscounted.
-The result is joined against `data/latest_scored_signals.csv` by
-`HeadlineID` and appended (every scoring sub-signal + the binary response +
-a freshness feature) to `data/training_data.csv`, which accumulates across
-survey cycles and is never overwritten.
+`HeadlineID` is recomputed from the `Headline` text (same deterministic
+hash used everywhere else), then joined against
+`data/latest_scored_signals.csv` and appended (every scoring sub-signal +
+the binary response + any `Remark` + a freshness feature) to
+`data/training_data.csv`, which accumulates across survey cycles and is
+never overwritten.
 
 ### Stage 5: retrain weights
 
@@ -127,9 +132,9 @@ into `data/survey_responses/` as-is.
 
 If you'd rather use a dedicated survey tool (Google Forms, Typeform, a
 WhatsApp form, etc.), `ingest_responses.py` only cares about ending up with
-a CSV/Excel file with `HeadlineID` and `Relevant` (Yes/No) columns in
-`data/survey_responses/` -- map that tool's response export back to those
-two columns before dropping it in.
+a CSV/Excel file with `Headline` and `Relevant` (Yes/No) columns (`Remark`
+optional) in `data/survey_responses/` -- map that tool's response export
+back to those columns before dropping it in.
 
 ## Config files
 
