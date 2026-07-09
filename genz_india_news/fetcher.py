@@ -17,9 +17,13 @@ logger = logging.getLogger("genz_india_news.fetcher")
 GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search?q={query}&hl={hl}&gl={gl}&ceid={ceid}"
 
 
-def build_rss_url(keyword: str, locale: dict) -> str:
-    """Build a Google News RSS search URL for a keyword using locale settings."""
-    query = quote_plus(keyword)
+def build_rss_url(keyword: str, locale: dict, lookback_hours: int | None = None) -> str:
+    """Build a Google News RSS search URL for a keyword using locale settings.
+    If lookback_hours is set, appends Google's `when:` search operator so
+    results are restricted server-side to articles published within that
+    window, rather than filtering client-side after the fact."""
+    query_text = f"{keyword} when:{lookback_hours}h" if lookback_hours else keyword
+    query = quote_plus(query_text)
     return GOOGLE_NEWS_RSS_URL.format(
         query=query, hl=locale["hl"], gl=locale["gl"], ceid=locale["ceid"]
     )
@@ -29,11 +33,12 @@ def fetch_keyword_articles(
     keyword: str,
     locale: dict,
     request_settings: dict,
+    lookback_hours: int | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch and parse Google News RSS results for a single keyword, with
     retry/backoff. Returns an empty list (never raises) on repeated failure
     so one bad keyword can't kill the whole run."""
-    url = build_rss_url(keyword, locale)
+    url = build_rss_url(keyword, locale, lookback_hours)
     max_retries = request_settings.get("max_retries", 3)
     backoff_base = request_settings.get("backoff_base_seconds", 2)
     timeout = request_settings.get("timeout_seconds", 10)
@@ -92,6 +97,7 @@ def fetch_sector_candidates(
     locale: dict,
     request_settings: dict,
     candidate_pool_size: int,
+    lookback_hours: int | None = None,
 ) -> list[dict[str, Any]]:
     """Query all keywords for a sector, merge results, dedupe by normalized
     headline, and cap the pool at candidate_pool_size."""
@@ -99,7 +105,7 @@ def fetch_sector_candidates(
     delay = request_settings.get("delay_between_requests_seconds", 1)
 
     for i, keyword in enumerate(keywords):
-        articles = fetch_keyword_articles(keyword, locale, request_settings)
+        articles = fetch_keyword_articles(keyword, locale, request_settings, lookback_hours)
         all_articles.extend(articles)
         if i < len(keywords) - 1:
             time.sleep(delay)

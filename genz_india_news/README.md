@@ -144,7 +144,7 @@ logic:
 | File | Contents |
 |---|---|
 | `sectors.json` | sector name -> list of Google News search keywords |
-| `settings.json` | candidate pool size, output cap, locale, request retry/backoff, schedule time, log path |
+| `settings.json` | candidate pool size, output cap, locale, request retry/backoff, news lookback window, schedule time, log path |
 | `scoring_weights.json` | `india_weight`, `genz_weight`, GenZ sub-signal weights (`w1_source`/`w2_topic_keyword`), India sub-signal weights, freshness half-life |
 | `source_lists.json` | India-publisher and GenZ/Alpha-publisher weight maps |
 | `genz_topic_keywords.json` | flat GenZ/Alpha topic keyword list, reused across all sectors |

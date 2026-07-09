@@ -12,6 +12,7 @@
     "backoff_base_seconds": 2,
     "delay_between_requests_seconds": 1
   },
+  "news_lookback_hours": 24,
   "output_dir": "output",
   "log_file": "logs/pipeline.log",
   "schedule_time": "07:00"

@@ -99,13 +99,14 @@ def run_pipeline() -> dict[str, list[dict[str, Any]]]:
     locale = settings.get("locale", {"hl": "en", "gl": "IN", "ceid": "IN:en"})
     request_settings = settings.get("request", {})
     output_dir = settings.get("output_dir", "output")
+    news_lookback_hours = settings.get("news_lookback_hours")
 
     sector_results: dict[str, list[dict[str, Any]]] = {}
 
     for sector, keywords in sectors.items():
         logger.info("=== Fetching sector '%s' ===", sector)
         candidates = fetch_sector_candidates(
-            sector, keywords, locale, request_settings, candidate_pool_size
+            sector, keywords, locale, request_settings, candidate_pool_size, news_lookback_hours
         )
 
         if not candidates:
