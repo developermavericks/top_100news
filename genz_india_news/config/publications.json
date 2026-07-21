@@ -1,0 +1,88 @@
+{
+  "_readme": "Curated publisher whitelist -- the pipeline sources ONLY from these domains per sector. Keys MUST match config/sectors.json's sector names exactly (they differ from the original reference-doc sector names, e.g. 'Space and Science' -> 'Science & Space', 'Global Affairs' -> 'World News', 'Tech, Startup and AI' -> 'AI'). 'rss' is a confirmed-live direct feed URL (fetched directly, no Google News involved); when null, the publication is reached via a Google News query restricted to its domain(s) with site:. 'india_weight'/'genz_weight' (0-1) feed india_source_score/genz_source_score directly, bypassing config/source_lists.json's fuzzy name-matching entirely -- attribution here is by domain, not by trying to match Google's often-inconsistent <source> string.",
+
+  "Pop Culture": [],
+
+  "Science & Space": [
+    {"name": "Science (AAAS)", "domains": ["science.org"], "rss": null, "india_weight": 0.2, "genz_weight": 0.5, "note": "academic journal; feed pattern is known but returned 403 in testing"},
+    {"name": "National Geographic", "domains": ["nationalgeographic.com"], "rss": null, "india_weight": 0.3, "genz_weight": 0.6, "note": "the tested feed path 404'd; an older feed URL is referenced online but unverified"},
+    {"name": "BBC Earth", "domains": ["bbcearth.com"], "rss": null, "india_weight": 0.3, "genz_weight": 0.6, "note": "site was entirely unreachable in testing -- retest"},
+    {"name": "Nature", "domains": ["nature.com"], "rss": "https://www.nature.com/nature.rss", "india_weight": 0.2, "genz_weight": 0.4},
+    {"name": "ScienceDirect", "domains": ["sciencedirect.com"], "rss": null, "india_weight": 0.1, "genz_weight": 0.2, "note": "literature-index platform aggregating many journals, not a single publisher -- no unified feed, expect near-zero yield"},
+    {"name": "Advances in Space Research", "domains": ["sciencedirect.com"], "rss": "https://rss.sciencedirect.com/publication/science/02731177", "india_weight": 0.1, "genz_weight": 0.2, "note": "academic journal, per-journal new-paper-alert feed, not news -- expect near-zero yield"},
+    {"name": "Space: Science and Technology", "domains": ["spj.science.org"], "rss": null, "india_weight": 0.1, "genz_weight": 0.2, "note": "academic journal (AAAS Science Partner Journal); feed pattern known but returned 403 in testing -- expect near-zero yield"},
+    {"name": "PubMed", "domains": ["pubmed.ncbi.nlm.nih.gov"], "rss": null, "india_weight": 0.1, "genz_weight": 0.1, "note": "literature index, not a publisher -- robots.txt explicitly disallows /rss and /api; no fixed feed exists, expect near-zero yield"},
+    {"name": "The New England Journal of Medicine", "domains": ["nejm.org"], "rss": null, "india_weight": 0.1, "genz_weight": 0.1, "note": "academic journal -- robots.txt explicitly disallows /rss; expect near-zero yield"},
+    {"name": "National Medical Journal of India", "domains": ["nmji.in"], "rss": null, "india_weight": 0.3, "genz_weight": 0.1, "note": "academic journal, India-affiliated (AIIMS) but not a news outlet -- expect near-zero yield"}
+  ],
+
+  "Gaming": [],
+
+  "World News": [
+    {"name": "BBC News", "domains": ["bbc.com"], "rss": "https://feeds.bbci.co.uk/news/world/rss.xml", "india_weight": 0.5, "genz_weight": 0.5},
+    {"name": "CNN", "domains": ["cnn.com"], "rss": null, "india_weight": 0.4, "genz_weight": 0.5, "note": "main/edition domains returned 451 in testing; lite.cnn.com loaded fine but no RSS was confirmed live there"},
+    {"name": "Times of India", "domains": ["timesofindia.indiatimes.com"], "rss": null, "india_weight": 0.95, "genz_weight": 0.5, "note": "ToI's own RSS terms explicitly forbid redistribution/aggregation of feed content -- deliberately not ingesting their feed directly even though a URL is discoverable; sourced via the Google News fallback only"},
+    {"name": "The Hindu", "domains": ["thehindu.com"], "rss": null, "india_weight": 0.95, "genz_weight": 0.5, "note": "domain was unreachable in testing (tool-level block); a feed URL is documented but unconfirmed -- retest before trusting"}
+  ],
+
+  "AI": [
+    {"name": "TechCrunch", "domains": ["techcrunch.com"], "rss": "https://techcrunch.com/feed/", "india_weight": 0.5, "genz_weight": 0.85},
+    {"name": "Reuters", "domains": ["reuters.com"], "rss": null, "india_weight": 0.6, "genz_weight": 0.6, "note": "Reuters discontinued its public RSS in 2020; no legitimate direct feed exists"},
+    {"name": "Taylor and Francis", "domains": ["taylorandfrancis.com"], "rss": null, "india_weight": 0.2, "genz_weight": 0.3, "note": "academic publisher, not a news outlet -- its only Google-News-indexed content is a separate 'Newsroom' PR sub-brand, expect near-zero yield"},
+    {"name": "Reuben Hassid (Substack)", "domains": ["ruben.substack.com"], "rss": "https://ruben.substack.com/feed", "india_weight": 0.3, "genz_weight": 0.7, "note": "correct byline spelling is 'Ruben' -- individual AI newsletter, never appears in Google News under its own name"},
+    {"name": "Cybernetics and Systems Analysis", "domains": ["link.springer.com"], "rss": null, "india_weight": 0.1, "genz_weight": 0.2, "note": "academic journal (Springer); 'Cybernetics' alone is an ambiguous generic term, this is the closest-named journal -- expect near-zero yield, kept per explicit request"},
+    {"name": "Indian Journal of Science and Technology", "domains": ["indjst.org"], "rss": null, "india_weight": 0.3, "genz_weight": 0.2, "note": "academic journal, not a news outlet -- expect near-zero yield"},
+    {"name": "Advances in Science and Technology Research Journal", "domains": ["astrj.com"], "rss": null, "india_weight": 0.1, "genz_weight": 0.2, "note": "academic journal, not a news outlet -- expect near-zero yield"}
+  ],
+
+  "Money & Business": [
+    {"name": "Forbes", "domains": ["forbes.com"], "rss": "https://www.forbes.com/business/feed/", "india_weight": 0.5, "genz_weight": 0.5},
+    {"name": "Bloomberg", "domains": ["bloomberg.com"], "rss": "https://www.bloomberg.com/feeds/markets/news.rss", "india_weight": 0.6, "genz_weight": 0.4, "note": "feed is teaser-only (paywalled descriptions)"},
+    {"name": "Mint", "domains": ["livemint.com"], "rss": null, "india_weight": 0.9, "genz_weight": 0.5},
+    {"name": "Economic Times", "domains": ["economictimes.indiatimes.com"], "rss": null, "india_weight": 0.9, "genz_weight": 0.5},
+    {"name": "Wall Street Journal", "domains": ["wsj.com"], "rss": "https://feeds.a.dj.com/rss/RSSWorldNews.xml", "india_weight": 0.4, "genz_weight": 0.4, "note": "feed is teaser-only (paywalled); world-news feed, not business-specific -- may need a different WSJ feed if this proves too broad"},
+    {"name": "FinShorts", "domains": ["thefinshorts.com"], "rss": null, "india_weight": 0.7, "genz_weight": 0.6, "note": "UNVERIFIED -- prior research could not find a site at this domain and suspects the intended outlet is Finshots (finshots.in), which does have a confirmed-live feed. Confirm which is correct before relying on this entry; domain kept as given rather than silently swapped."}
+  ],
+
+  "Entertainment (Film/TV/Music)": [
+    {"name": "Indian Express", "domains": ["indianexpress.com"], "rss": "https://indianexpress.com/feed/", "india_weight": 0.95, "genz_weight": 0.75},
+    {"name": "Filmfare", "domains": ["filmfare.com"], "rss": "https://www.filmfare.com/feeds/feeds.xml", "india_weight": 0.9, "genz_weight": 0.85},
+    {"name": "India Today", "domains": ["indiatoday.in"], "rss": "https://www.indiatoday.in/rss/1837848", "india_weight": 0.95, "genz_weight": 0.75},
+    {"name": "PinkVilla", "domains": ["pinkvilla.com"], "rss": null, "india_weight": 0.85, "genz_weight": 0.9, "note": "public feed found is stale (frozen since May 2026) -- treated as no working direct feed"},
+    {"name": "Bollywood Hungama", "domains": ["bollywoodhungama.com"], "rss": "https://www.bollywoodhungama.com/rss/news.xml", "india_weight": 0.9, "genz_weight": 0.85},
+    {"name": "Rolling Stone India", "domains": ["rollingstoneindia.com"], "rss": "https://rollingstoneindia.com/feed/", "india_weight": 0.85, "genz_weight": 0.9},
+    {"name": "Variety", "domains": ["variety.com"], "rss": null, "india_weight": 0.3, "genz_weight": 0.75, "note": "site + feed both gated behind a Tollbit paywall (402) as of testing"},
+    {"name": "The Hollywood Reporter", "domains": ["hollywoodreporter.com"], "rss": "https://www.hollywoodreporter.com/feed/", "india_weight": 0.3, "genz_weight": 0.8},
+    {"name": "DeuxMoi", "domains": ["deuxmoi.world"], "rss": null, "india_weight": 0.2, "genz_weight": 0.6, "note": "gossip/rumor outlet, not a newsroom -- crowdsourced unverified 'sightings' by its own disclaimer; weighted low deliberately"},
+    {"name": "Pitchfork", "domains": ["pitchfork.com"], "rss": null, "india_weight": 0.2, "genz_weight": 0.75, "note": "direct-feed liveness was inconclusive in testing (tool-level block); retest before assuming it's actually dead"},
+    {"name": "Billboard", "domains": ["billboard.com"], "rss": null, "india_weight": 0.3, "genz_weight": 0.8, "note": "site + feed both gated behind the same Tollbit paywall as Variety (402)"},
+    {"name": "NME", "domains": ["nme.com"], "rss": "https://www.nme.com/feed", "india_weight": 0.2, "genz_weight": 0.8},
+    {"name": "Paste Magazine", "domains": ["pastemagazine.com"], "rss": null, "india_weight": 0.2, "genz_weight": 0.75, "note": "homepage and /feed both 403 -- likely WAF/bot-detection rather than a real policy block"}
+  ],
+
+  "Sports": [],
+
+  "Climate & Environment": [],
+
+  "Health & Wellness": [],
+
+  "Fashion & Beauty": [
+    {"name": "Vogue India", "domains": ["vogue.in"], "rss": "https://www.vogue.in/feed/rss", "india_weight": 0.95, "genz_weight": 0.9},
+    {"name": "Elle India", "domains": ["elle.in"], "rss": null, "india_weight": 0.9, "genz_weight": 0.85},
+    {"name": "Harper's Bazaar India", "domains": ["harpersbazaar.in"], "rss": null, "india_weight": 0.9, "genz_weight": 0.8},
+    {"name": "HT City", "domains": ["htcity.hindustantimes.com"], "rss": null, "india_weight": 0.85, "genz_weight": 0.7},
+    {"name": "Delhi Times", "domains": ["timesofindia.indiatimes.com"], "rss": null, "india_weight": 0.8, "genz_weight": 0.6, "note": "shares a domain with Bombay Times and the main Times of India paper -- Google News cannot distinguish the city supplement from the parent paper by URL path alone"},
+    {"name": "Bombay Times", "domains": ["timesofindia.indiatimes.com"], "rss": null, "india_weight": 0.8, "genz_weight": 0.6, "note": "see Delhi Times note -- same domain overlap"},
+    {"name": "GQ India", "domains": ["gqindia.com"], "rss": "https://www.gqindia.com/feed/rss", "india_weight": 0.95, "genz_weight": 0.9},
+    {"name": "GQ", "domains": ["gq.com"], "rss": "https://www.gq.com/feed/rss", "india_weight": 0.5, "genz_weight": 0.85},
+    {"name": "Architectural Digest", "domains": ["architecturaldigest.com", "architecturaldigest.in"], "rss": "https://www.architecturaldigest.com/feed/rss", "india_weight": 0.6, "genz_weight": 0.7, "note": "direct RSS is the global edition feed only; architecturaldigest.in (India edition) is included in the site: fallback restriction but has no separately confirmed feed"},
+    {"name": "Vogue", "domains": ["vogue.com"], "rss": "https://www.vogue.com/feed/rss", "india_weight": 0.5, "genz_weight": 0.85},
+    {"name": "InStyle", "domains": ["instyle.com"], "rss": null, "india_weight": 0.5, "genz_weight": 0.75}
+  ],
+
+  "Creator Economy": [],
+
+  "Crime & Justice": [],
+
+  "Education": []
+}

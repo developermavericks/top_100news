@@ -16,6 +16,20 @@ logger = logging.getLogger("genz_india_news.fetcher")
 
 GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search?q={query}&hl={hl}&gl={gl}&ceid={ceid}"
 
+# requests' own default ("python-requests/x.x.x") is a well-known signature
+# of an unmodified automated script that some publisher WAFs block on sight
+# (confirmed: rollingstoneindia.com/feed/ returns 403 with the default UA
+# and 200 with this one, same IP, same request otherwise). A normal browser
+# UA is what every real RSS reader sends -- this doesn't bypass a paywall,
+# login, or robots.txt disallow rule, it just stops announcing "unmodified
+# script" for no reason.
+REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    )
+}
+
 
 def build_rss_url(keyword: str, locale: dict, lookback_hours: int | None = None) -> str:
     """Build a Google News RSS search URL for a keyword using locale settings.
@@ -45,7 +59,7 @@ def fetch_keyword_articles(
 
     for attempt in range(1, max_retries + 1):
         try:
-            response = requests.get(url, timeout=timeout)
+            response = requests.get(url, headers=REQUEST_HEADERS, timeout=timeout)
             response.raise_for_status()
             feed = feedparser.parse(response.content)
 

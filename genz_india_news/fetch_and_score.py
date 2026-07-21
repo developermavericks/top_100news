@@ -21,6 +21,7 @@ import schedule
 
 from config_utils import (
     load_genz_topic_keywords,
+    load_publications,
     load_scoring_weights,
     load_sectors,
     load_settings,
@@ -31,6 +32,7 @@ from exporter import export_full_workbook, export_raw_signals_cache, export_surv
 from fetcher import fetch_sector_candidates
 from genz_scorer import combine_genz_score, compute_genz_source_and_topic_scores
 from india_scorer import compute_india_score
+from publication_fetcher import fetch_sector_publications
 from text_utils import headline_id
 
 logger = logging.getLogger("genz_india_news.fetch_and_score")
@@ -59,11 +61,26 @@ def score_sector(
         india_result = compute_india_score(
             article, sector_keywords, india_sources, india_subsignal_weights
         )
-        article.update(india_result)
-
         genz_result = compute_genz_source_and_topic_scores(
             article, genz_alpha_sources, genz_topic_keywords
         )
+
+        # Candidates fetched via the curated publisher whitelist
+        # (publication_fetcher.py) already know exactly which publication
+        # they came from -- by domain, not by fuzzy-matching Google's often
+        # mismatched <source> text -- so their source sub-score is set
+        # directly from config/publications.json rather than looked up.
+        if "_pub_india_weight" in article:
+            india_result["india_source_score"] = article["_pub_india_weight"] * 100
+            india_result["india_score"] = max(0.0, min(100.0, (
+                india_result["india_source_score"] * india_subsignal_weights.get("source_weight", 0.4)
+                + india_result["india_keyword_score"] * india_subsignal_weights.get("keyword_match_weight", 0.35)
+                + india_result["india_entity_score"] * india_subsignal_weights.get("entity_weight", 0.25)
+            )))
+        if "_pub_genz_weight" in article:
+            genz_result["genz_source_score"] = article["_pub_genz_weight"] * 100
+
+        article.update(india_result)
         article.update(genz_result)
 
         article["genz_alpha_score"] = combine_genz_score(
@@ -93,6 +110,7 @@ def run_pipeline() -> dict[str, list[dict[str, Any]]]:
     scoring_weights = load_scoring_weights()
     source_lists = load_source_lists()
     genz_topic_keywords = load_genz_topic_keywords()
+    publications = load_publications()
 
     candidate_pool_size = settings.get("candidate_pool_size", 200)
     max_headlines_per_sector = settings.get("max_headlines_per_sector", 100)
@@ -105,9 +123,20 @@ def run_pipeline() -> dict[str, list[dict[str, Any]]]:
 
     for sector, keywords in sectors.items():
         logger.info("=== Fetching sector '%s' ===", sector)
-        candidates = fetch_sector_candidates(
-            sector, keywords, locale, request_settings, candidate_pool_size, news_lookback_hours
-        )
+        sector_publications = publications.get(sector, [])
+        if sector_publications:
+            # Curated-publisher sourcing: ONLY these domains, direct RSS
+            # first, a site:-restricted Google News query as fallback.
+            candidates = fetch_sector_publications(
+                sector, sector_publications, keywords, locale, request_settings,
+                candidate_pool_size, news_lookback_hours,
+            )
+        else:
+            # No curated publisher list configured for this sector yet --
+            # fall back to the open keyword search across all of Google News.
+            candidates = fetch_sector_candidates(
+                sector, keywords, locale, request_settings, candidate_pool_size, news_lookback_hours
+            )
 
         if not candidates:
             logger.warning("Sector '%s' returned zero candidates; skipping.", sector)

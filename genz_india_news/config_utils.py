@@ -25,8 +25,11 @@ def load_settings() -> dict:
 
 
 def load_sectors() -> dict:
-    """Load config/sectors.json (sector name -> list of search keywords)."""
-    return load_json_config("sectors.json")
+    """Load config/sectors.json (sector name -> list of search keywords).
+    Keys prefixed with '_' are disabled sectors (no curated publications.json
+    list yet) and are filtered out rather than run through the pipeline."""
+    raw = load_json_config("sectors.json")
+    return {sector: keywords for sector, keywords in raw.items() if not sector.startswith("_")}
 
 
 def load_scoring_weights() -> dict:
@@ -37,6 +40,14 @@ def load_scoring_weights() -> dict:
 def load_source_lists() -> dict:
     """Load config/source_lists.json (india_sources + genz_alpha_sources)."""
     return load_json_config("source_lists.json")
+
+
+def load_publications() -> dict:
+    """Load config/publications.json (sector name -> curated list of publisher
+    dicts: name, domains, rss, india_weight, genz_weight). Sectors with no
+    curated list yet resolve to an empty list, not a KeyError."""
+    raw = load_json_config("publications.json")
+    return {sector: pubs for sector, pubs in raw.items() if not sector.startswith("_")}
 
 
 def load_genz_topic_keywords() -> list[str]:
