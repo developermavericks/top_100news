@@ -33,7 +33,7 @@ from fetcher import fetch_sector_candidates
 from genz_scorer import combine_genz_score, compute_genz_source_and_topic_scores
 from india_scorer import compute_india_score
 from publication_fetcher import fetch_sector_publications
-from text_utils import headline_id
+from text_utils import headline_id, normalize_headline
 
 logger = logging.getLogger("genz_india_news.fetch_and_score")
 
@@ -101,6 +101,21 @@ def score_sector(
     return candidates
 
 
+def _merge_dedupe(primary: list[dict[str, Any]], secondary: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge `secondary` into `primary`, keeping primary's copy of any
+    headline both share. Used to top up a thin curated-publisher pool with
+    the broad Google News search without duplicating anything the curated
+    fetch already found."""
+    seen = {normalize_headline(a["headline"]) for a in primary if a.get("headline")}
+    merged = list(primary)
+    for article in secondary:
+        key = normalize_headline(article.get("headline", ""))
+        if key and key not in seen:
+            seen.add(key)
+            merged.append(article)
+    return merged
+
+
 def run_pipeline() -> dict[str, list[dict[str, Any]]]:
     """Run stages 1-3 for every configured sector and export the results.
     Returns the per-sector scored results (also useful for callers like a
@@ -118,6 +133,9 @@ def run_pipeline() -> dict[str, list[dict[str, Any]]]:
     request_settings = settings.get("request", {})
     output_dir = settings.get("output_dir", "output")
     news_lookback_hours = settings.get("news_lookback_hours")
+    thin_pool_cfg = settings.get("thin_pool_fallback", {})
+    thin_pool_sectors = set(thin_pool_cfg.get("sectors", []))
+    thin_pool_min_candidates = thin_pool_cfg.get("min_candidates", 30)
 
     sector_results: dict[str, list[dict[str, Any]]] = {}
 
@@ -131,6 +149,21 @@ def run_pipeline() -> dict[str, list[dict[str, Any]]]:
                 sector, sector_publications, keywords, locale, request_settings,
                 candidate_pool_size, news_lookback_hours,
             )
+            # A handful of sectors are dominated by sources that rarely
+            # produce indexed news (academic journals, literature indexes)
+            # and can come up thin some days -- for those specifically,
+            # top up with the broad, unrestricted Google News search rather
+            # than exporting a near-empty sector. Sectors not listed here
+            # stay strictly limited to their curated websites, thin or not.
+            if sector in thin_pool_sectors and len(candidates) < thin_pool_min_candidates:
+                logger.info(
+                    "Sector '%s': curated pool is thin (%d < %d) -- topping up with the broad Google News search.",
+                    sector, len(candidates), thin_pool_min_candidates,
+                )
+                broad_candidates = fetch_sector_candidates(
+                    sector, keywords, locale, request_settings, candidate_pool_size, news_lookback_hours
+                )
+                candidates = _merge_dedupe(candidates, broad_candidates)
         else:
             # No curated publisher list configured for this sector yet --
             # fall back to the open keyword search across all of Google News.

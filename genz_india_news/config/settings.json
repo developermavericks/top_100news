@@ -13,6 +13,10 @@
     "delay_between_requests_seconds": 1
   },
   "news_lookback_hours": 24,
+  "thin_pool_fallback": {
+    "sectors": ["Science & Space"],
+    "min_candidates": 30
+  },
   "output_dir": "output",
   "log_file": "logs/pipeline.log",
   "schedule_time": "07:00"
