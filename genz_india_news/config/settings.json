@@ -15,7 +15,7 @@
   },
   "news_lookback_hours": 24,
   "thin_pool_fallback": {
-    "sectors": ["Science & Space", "World News"],
+    "sectors": ["Science & Space", "World News", "AI"],
     "min_candidates": 30
   },
   "groq_model": "llama-3.1-8b-instant",
