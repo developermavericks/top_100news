@@ -1,9 +1,13 @@
 """Stages 1-3 orchestrator: fetch India news candidates per sector, score
-them for India + GenZ/Alpha relevance (no LLM calls, no external engagement
-APIs -- purely rule-based against the Google News candidate pool), and
-export a survey-ready Excel workbook. Real behavioral signal comes later,
-from retrain_weights.py refitting these weights against actual survey
-responses once they exist.
+them for India + GenZ/Alpha relevance, and export a survey-ready Excel
+workbook. Scoring is rule-based by default (no external engagement APIs);
+two optional LLM touchpoints (Groq, see llm_client.py) layer on top when
+enabled in config/settings.json -- a universal relevance filter
+(llm_relevance_filter.py) and an LLM-judged cultural-relevance signal
+folded into genz_alpha_score (genz_scorer.py) -- both fail open to the
+existing rule-based behavior if disabled or unconfigured. Real behavioral
+signal comes later, from retrain_weights.py refitting these weights
+against actual survey responses once they exist.
 
 Run modes:
     python fetch_and_score.py --once   # run once and exit
@@ -28,10 +32,17 @@ from config_utils import (
     load_source_lists,
     setup_logging,
 )
-from exporter import export_full_workbook, export_raw_signals_cache, export_survey_clean
+from exporter import (
+    export_embeddings_cache,
+    export_full_workbook,
+    export_raw_signals_cache,
+    export_survey_clean,
+)
 from fetcher import fetch_sector_candidates
-from genz_scorer import combine_genz_score, compute_genz_source_and_topic_scores
+from genz_scorer import combine_genz_score, compute_genz_source_and_topic_scores, get_llm_genz_relevance_score
 from india_scorer import compute_india_score
+from llm_client import get_groq_client
+from llm_relevance_filter import filter_by_llm_relevance
 from publication_fetcher import fetch_sector_publications
 from text_utils import count_keyword_matches, headline_id, normalize_headline
 
@@ -147,6 +158,64 @@ def _merge_dedupe(primary: list[dict[str, Any]], secondary: list[dict[str, Any]]
     return merged
 
 
+def _apply_llm_genz_scoring(
+    scored: list[dict[str, Any]],
+    sector: str,
+    settings: dict[str, Any],
+    scoring_weights: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Re-score the top N (by the existing rule-based ranking) candidates'
+    genz_alpha_score with an LLM-judged cultural-relevance signal, then
+    re-sort the full list by final_score. Only the shortlist gets a real
+    Groq call -- not the whole ~200-candidate pool -- to control cost;
+    everything beyond N keeps its rule-based-only score untouched. A no-op
+    (returns `scored` unchanged) if the feature is disabled or no API key
+    is configured."""
+    client = get_groq_client(settings, "use_llm_genz_scoring")
+    if client is None or not scored:
+        return scored
+
+    top_n = settings.get("llm_genz_scoring_top_n", 100)
+    genz_subsignal_weights = scoring_weights.get("genz_subsignal_weights", {})
+    india_weight = scoring_weights.get("india_weight", 0.4)
+    genz_weight = scoring_weights.get("genz_weight", 0.6)
+    delay = settings.get("groq_request_delay_seconds", 0.3)
+
+    shortlist = scored[:top_n]
+    scored_count = 0
+    failed_count = 0
+
+    for i, article in enumerate(shortlist):
+        llm_score = get_llm_genz_relevance_score(article["headline"], settings)
+        article["llm_genz_score"] = llm_score
+        if llm_score is None:
+            failed_count += 1
+        else:
+            scored_count += 1
+
+        article["genz_alpha_score"] = combine_genz_score(
+            article["genz_source_score"],
+            article["genz_topic_keyword_score"],
+            genz_subsignal_weights,
+            llm_score,
+        )
+        article["final_score"] = (
+            article["india_score"] * india_weight
+            + article["genz_alpha_score"] * genz_weight
+        )
+
+        if i < len(shortlist) - 1:
+            time.sleep(delay)
+
+    scored.sort(key=lambda a: a["final_score"], reverse=True)
+    logger.info(
+        "Sector '%s' LLM GenZ scoring: %d/%d shortlisted candidates scored, "
+        "%d fell back to the rule-based signal after API errors.",
+        sector, scored_count, len(shortlist), failed_count,
+    )
+    return scored
+
+
 def run_pipeline() -> dict[str, list[dict[str, Any]]]:
     """Run stages 1-3 for every configured sector and export the results.
     Returns the per-sector scored results (also useful for callers like a
@@ -204,6 +273,14 @@ def run_pipeline() -> dict[str, list[dict[str, Any]]]:
                 sector, keywords, locale, request_settings, candidate_pool_size, news_lookback_hours
             )
 
+        # Universal LLM relevance check (Groq, opt-in): unlike the keyword
+        # gate above, this applies to every surviving candidate regardless
+        # of publication scope -- including whatever the thin-pool fallback
+        # just topped up with -- catching off-topic headlines from
+        # "dedicated" sources that the keyword gate never touches. A no-op
+        # if use_llm_relevance_filter is off or no GROQ_API_KEY is set.
+        candidates = filter_by_llm_relevance(candidates, sector, settings)
+
         if not candidates:
             logger.warning("Sector '%s' returned zero candidates; skipping.", sector)
             sector_results[sector] = []
@@ -212,6 +289,10 @@ def run_pipeline() -> dict[str, list[dict[str, Any]]]:
         scored = score_sector(
             sector, candidates, keywords, source_lists, genz_topic_keywords, scoring_weights,
         )
+        # Re-scores only the top llm_genz_scoring_top_n by the rule-based
+        # ranking above with an LLM-judged cultural-relevance signal, then
+        # re-sorts -- a no-op if use_llm_genz_scoring is off or unconfigured.
+        scored = _apply_llm_genz_scoring(scored, sector, settings, scoring_weights)
         sector_results[sector] = scored[:max_headlines_per_sector]
 
     total_exported = sum(len(v) for v in sector_results.values())
@@ -227,6 +308,7 @@ def run_pipeline() -> dict[str, list[dict[str, Any]]]:
     export_full_workbook(sector_results, output_dir)
     export_survey_clean(sector_results, output_dir)
     export_raw_signals_cache(sector_results, "data")
+    export_embeddings_cache(sector_results, "data")
 
     return sector_results
 

@@ -3,7 +3,15 @@
 Reads data/training_data.csv (built by ingest_responses.py), fits a
 regression from individual signal scores onto the real survey Response,
 prints feature importances, then backs up and rewrites
-config/scoring_weights.json with weights derived from the fit.
+config/scoring_weights.json with weights derived from the fit. The
+genz_subsignal_weights refit now includes llm_genz_score as a third
+signal alongside the two original rule-based ones (see genz_scorer.py).
+
+Also runs a separate, purely diagnostic fit that additionally sees the
+local sentence-embedding features from data/embeddings_cache.jsonl (via
+ingest_responses.py) and prints its feature importances -- this one is
+NOT written back to config/scoring_weights.json; see
+_fit_diagnostic_with_embeddings's docstring for why.
 
 Safe to re-run repeatedly as more survey data accumulates -- always refits
 on the full accumulated dataset.
@@ -32,11 +40,16 @@ WEIGHTS_PATH = CONFIG_DIR / "scoring_weights.json"
 
 MIN_ROWS_FOR_RETRAIN = 10
 
+# llm_genz_score is blank for any row the optional LLM GenZ-scoring
+# touchpoint never ran on (feature disabled, or beyond its top-N
+# shortlist) -- _fit's .fillna(0.0) treats a missing score as "no signal",
+# same as it already does for the other subsignals.
 FULL_DIAGNOSTIC_FEATURES = [
-    "india_score", "genz_source_score", "genz_topic_keyword_score", "freshness_score",
+    "india_score", "genz_source_score", "genz_topic_keyword_score", "llm_genz_score", "freshness_score",
 ]
 TOP_LEVEL_FEATURES = ["india_score", "genz_alpha_score"]
-GENZ_SUBSIGNAL_FEATURES = ["genz_source_score", "genz_topic_keyword_score"]
+GENZ_SUBSIGNAL_FEATURES = ["genz_source_score", "genz_topic_keyword_score", "llm_genz_score"]
+EMBEDDING_COLUMN_PREFIX = "embed_"
 
 
 def _is_binary(series: pd.Series) -> bool:
@@ -83,6 +96,15 @@ def retrain_weights() -> None:
         return
 
     df = pd.read_csv(TRAINING_DATA_PATH)
+
+    # Forward-compat: training_data.csv rows appended before this feature
+    # existed won't have an llm_genz_score column at all -- add it as blank
+    # rather than erroring, same as how a disabled-feature row already gets
+    # a blank value going forward.
+    for col in ("llm_genz_score",):
+        if col not in df.columns:
+            df[col] = float("nan")
+
     if len(df) < MIN_ROWS_FOR_RETRAIN:
         logger.warning(
             "Only %d training rows available (recommended minimum: %d). "
@@ -120,6 +142,7 @@ def retrain_weights() -> None:
     new_weights["genz_subsignal_weights"] = {
         "w1_source": round(genz_sub_weights["genz_source_score"], 4),
         "w2_topic_keyword": round(genz_sub_weights["genz_topic_keyword_score"], 4),
+        "w3_llm_genz": round(genz_sub_weights["llm_genz_score"], 4),
     }
 
     with open(WEIGHTS_PATH, "w", encoding="utf-8") as f:
@@ -130,6 +153,63 @@ def retrain_weights() -> None:
         "india_weight=%.4f genz_weight=%.4f genz_subsignal_weights=%s",
         new_weights["india_weight"], new_weights["genz_weight"], new_weights["genz_subsignal_weights"],
     )
+
+    _fit_diagnostic_with_embeddings(df)
+
+
+def _fit_diagnostic_with_embeddings(df: pd.DataFrame) -> None:
+    """Purely diagnostic: fit a model that ALSO sees the local sentence-
+    embedding features (see exporter.export_embeddings_cache /
+    ingest_responses.load_embeddings_cache) alongside the existing signals,
+    and print what it finds. Does NOT get written back to
+    scoring_weights.json -- there's no clean way to fold a ~384-dim
+    embedding into the existing weighted-sum scoring formula without a
+    bigger rewrite, and at realistic survey volumes (dozens to low
+    hundreds of rows) a model with hundreds of features is very likely to
+    overfit. This exists purely to answer the open question of whether
+    embeddings/the LLM signal actually predict real survey responses at
+    all, before investing in wiring them into production scoring -- read
+    the printed importances with that in mind, don't assume the answer."""
+    embed_cols = [c for c in df.columns if c.startswith(EMBEDDING_COLUMN_PREFIX)]
+    if not embed_cols:
+        logger.info(
+            "No embedding columns found in training_data.csv (run ingest_responses.py "
+            "after fetch_and_score.py has produced data/embeddings_cache.jsonl); "
+            "skipping the embeddings diagnostic fit."
+        )
+        return
+
+    y = df["Response"]
+    if not _is_binary(y):
+        logger.info(
+            "Response column isn't binary; skipping the embeddings diagnostic fit "
+            "(expects Yes/No survey data)."
+        )
+        return
+
+    features = FULL_DIAGNOSTIC_FEATURES + embed_cols
+    X = df[features].fillna(0.0)
+
+    try:
+        from sklearn.ensemble import GradientBoostingClassifier
+        model = GradientBoostingClassifier()
+        model.fit(X, y)
+    except Exception as exc:
+        logger.warning("Embeddings diagnostic fit failed (%s); skipping.", exc)
+        return
+
+    importances = dict(zip(features, model.feature_importances_))
+    non_embed = {k: v for k, v in importances.items() if not k.startswith(EMBEDDING_COLUMN_PREFIX)}
+    embed_total = sum(v for k, v in importances.items() if k.startswith(EMBEDDING_COLUMN_PREFIX))
+
+    logger.info(
+        "=== Diagnostic: feature importances WITH embeddings (%d dims, %d training rows) "
+        "-- NOT written back to scoring_weights.json ===",
+        len(embed_cols), len(df),
+    )
+    for feature, importance in sorted(non_embed.items(), key=lambda kv: kv[1], reverse=True):
+        logger.info("  %-28s %.4f", feature, importance)
+    logger.info("  %-28s %.4f (aggregate across %d dims)", "embedding (all dims)", embed_total, len(embed_cols))
 
 
 def main() -> None:

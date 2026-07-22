@@ -22,6 +22,7 @@ Run manually once survey data exists:
 
 from __future__ import annotations
 
+import json
 import logging
 import warnings
 from datetime import datetime, timezone
@@ -47,6 +48,7 @@ logger = logging.getLogger("genz_india_news.ingest_responses")
 RESPONSES_DIR = Path("data/survey_responses")
 RAW_SIGNALS_PATH = Path("data/latest_scored_signals.csv")
 TRAINING_DATA_PATH = Path("data/training_data.csv")
+EMBEDDINGS_CACHE_PATH = Path("data/embeddings_cache.jsonl")
 
 REQUIRED_RESPONSE_COLUMNS = {"Headline", "Relevant"}
 
@@ -112,6 +114,26 @@ def load_response_files(responses_dir: Path) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
+def load_embeddings_cache(path: Path) -> dict[str, list[float]]:
+    """Load HeadlineID -> local sentence-embedding vector from the JSONL
+    cache exporter.py writes. Returns an empty dict (not an error) if the
+    file doesn't exist yet -- embeddings are optional context for
+    retrain_weights.py's diagnostic fit, not a hard requirement for
+    ingesting survey responses."""
+    embeddings: dict[str, list[float]] = {}
+    if not path.exists():
+        return embeddings
+
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                row = json.loads(line)
+                embeddings[row["HeadlineID"]] = row["embedding"]
+            except (json.JSONDecodeError, KeyError):
+                continue
+    return embeddings
+
+
 def compute_freshness_score(published: str, half_life_hours: float) -> float:
     """Exponential decay freshness score (0-100) from an RSS 'Published' date
     string. Returns 0.0 if the date can't be parsed (e.g. missing/malformed)."""
@@ -166,6 +188,24 @@ def ingest_responses() -> None:
         lambda p: compute_freshness_score(p, half_life_hours)
     )
     merged["IngestedAt"] = datetime.now(timezone.utc).isoformat()
+
+    # llm_genz_score/llm_relevance_passed ride along automatically -- they're
+    # already columns in raw_signals_df (RAW_SIGNAL_COLUMNS), blank for any
+    # headline the optional LLM touchpoints didn't run on. Embeddings are
+    # high-dimensional vectors, not a simple scalar column, so they need
+    # their own join and get expanded into embed_0..embed_(dim-1) columns.
+    embeddings = load_embeddings_cache(EMBEDDINGS_CACHE_PATH)
+    if embeddings:
+        embed_dim = len(next(iter(embeddings.values())))
+        embed_columns = [f"embed_{i}" for i in range(embed_dim)]
+        embed_rows = [embeddings.get(hid, [None] * embed_dim) for hid in merged["HeadlineID"]]
+        embed_df = pd.DataFrame(embed_rows, columns=embed_columns, index=merged.index)
+        merged = pd.concat([merged, embed_df], axis=1)
+    else:
+        logger.warning(
+            "No embeddings cache found at %s; training_data.csv will not include "
+            "embedding features for this batch.", EMBEDDINGS_CACHE_PATH,
+        )
 
     TRAINING_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
     write_header = not TRAINING_DATA_PATH.exists()

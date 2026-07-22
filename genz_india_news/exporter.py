@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import Path
@@ -12,6 +13,8 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
 logger = logging.getLogger("genz_india_news.exporter")
+
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
 # Excel sheet names can't contain \ / ? * [ ] : and are capped at 31 chars.
 # Sector names like "Entertainment (Film/TV/Music)" need the slashes stripped
@@ -25,6 +28,7 @@ def _safe_sheet_name(sector: str) -> str:
 FULL_COLUMNS = [
     "HeadlineID", "Rank", "Headline", "Source", "Published", "Link",
     "IndiaScore", "GenZAlphaScore", "FinalScore", "Sector",
+    "LLMGenZScore", "LLMRelevancePassed",
 ]
 
 SURVEY_CLEAN_COLUMNS = ["Headline", "Sector", "Relevant", "Remark"]
@@ -34,11 +38,15 @@ _RELEVANT_COLUMN_LETTER = get_column_letter(SURVEY_CLEAN_COLUMNS.index("Relevant
 # survey workbook. ingest_responses.py needs these to build training_data.csv
 # with per-signal features (source score, topic keyword score, etc.), so this
 # cache is overwritten every run alongside the survey-facing exports.
+# llm_genz_score and llm_relevance_passed are blank/NaN for any headline the
+# optional LLM touchpoints never ran on (feature disabled, or beyond the
+# top-N shortlist) -- see genz_scorer.py / llm_relevance_filter.py.
 RAW_SIGNAL_COLUMNS = [
     "HeadlineID", "Sector", "Headline", "Source", "Published", "Link",
     "india_source_score", "india_keyword_score", "india_entity_score", "india_score",
     "genz_source_score", "genz_topic_keyword_score",
     "genz_alpha_score", "final_score",
+    "llm_genz_score", "llm_relevance_passed",
 ]
 
 
@@ -57,6 +65,8 @@ def _sector_to_dataframe(sector: str, ranked_articles: list[dict[str, Any]]) -> 
                 "GenZAlphaScore": round(article["genz_alpha_score"], 2),
                 "FinalScore": round(article["final_score"], 2),
                 "Sector": sector,
+                "LLMGenZScore": article.get("llm_genz_score"),
+                "LLMRelevancePassed": article.get("_llm_relevance_passed"),
             }
         )
     return pd.DataFrame(rows, columns=FULL_COLUMNS)
@@ -154,10 +164,78 @@ def export_raw_signals_cache(
                     "genz_topic_keyword_score": article["genz_topic_keyword_score"],
                     "genz_alpha_score": article["genz_alpha_score"],
                     "final_score": article["final_score"],
+                    "llm_genz_score": article.get("llm_genz_score"),
+                    "llm_relevance_passed": article.get("_llm_relevance_passed"),
                 }
             )
 
     df = pd.DataFrame(rows, columns=RAW_SIGNAL_COLUMNS)
     df.to_csv(output_path, index=False)
     logger.info("Wrote %d rows of raw signal data to %s", len(df), output_path)
+    return output_path
+
+
+def export_embeddings_cache(
+    sector_results: dict[str, list[dict[str, Any]]],
+    data_dir: str,
+    filename: str = "embeddings_cache.jsonl",
+) -> Path | None:
+    """Append a local sentence-transformer embedding for every NEW headline
+    in this run to data/embeddings_cache.jsonl, keyed by the same
+    HeadlineID hash used everywhere else. Computed entirely locally (no API
+    cost, no Groq involved) -- retrain_weights.py joins on this later to
+    check whether embeddings actually add predictive value over the
+    simpler signals, which is an open question, not an assumption.
+
+    Never blocks the rest of the export: if sentence-transformers isn't
+    installed, or the model can't be loaded (e.g. no internet access to
+    download it on first use), this logs a warning once and returns None."""
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        logger.warning(
+            "sentence-transformers not installed; skipping embeddings_cache export. "
+            "It's in requirements.txt -- pip install to enable."
+        )
+        return None
+
+    output_path = Path(data_dir) / filename
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    already_cached: set[str] = set()
+    if output_path.exists():
+        with open(output_path, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    already_cached.add(json.loads(line)["HeadlineID"])
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+    to_embed = []
+    for ranked_articles in sector_results.values():
+        for article in ranked_articles:
+            headline_id_ = article["headline_id"]
+            if headline_id_ not in already_cached:
+                to_embed.append(article)
+                already_cached.add(headline_id_)  # dedupe within this run too
+
+    if not to_embed:
+        logger.info("No new headlines to embed; %s unchanged.", output_path)
+        return output_path
+
+    try:
+        model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+        vectors = model.encode([a["headline"] for a in to_embed], show_progress_bar=False)
+    except Exception as exc:
+        logger.warning("Could not compute embeddings (model load/encode failed): %s", exc)
+        return None
+
+    with open(output_path, "a", encoding="utf-8") as f:
+        for article, vector in zip(to_embed, vectors):
+            f.write(json.dumps({
+                "HeadlineID": article["headline_id"],
+                "embedding": vector.tolist(),
+            }) + "\n")
+
+    logger.info("Appended %d new embeddings to %s", len(to_embed), output_path)
     return output_path

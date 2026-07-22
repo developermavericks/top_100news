@@ -2,8 +2,9 @@
   "india_weight": 0.4,
   "genz_weight": 0.6,
   "genz_subsignal_weights": {
-    "w1_source": 0.5,
-    "w2_topic_keyword": 0.5
+    "w1_source": 0.3,
+    "w2_topic_keyword": 0.3,
+    "w3_llm_genz": 0.4
   },
   "india_subsignal_weights": {
     "source_weight": 0.4,

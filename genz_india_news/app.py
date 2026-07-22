@@ -17,6 +17,7 @@ import streamlit as st
 
 from config_utils import load_sectors, load_settings, setup_logging
 from fetch_and_score import run_pipeline
+from llm_client import get_groq_client
 
 st.set_page_config(page_title="GenZ India News Scoring", layout="wide")
 
@@ -30,10 +31,22 @@ SURVEY_CLEAN_PATH = OUTPUT_DIR / "survey_clean.xlsx"
 st.title("India GenZ/Alpha News Scoring")
 st.caption(
     "Fetches India news per sector from Google News, scores it for India + "
-    "GenZ/Alpha relevance (no LLM, no external API), and exports "
-    "survey-ready Excel workbooks -- no scheduler needed, just run this "
-    "once a day."
+    "GenZ/Alpha relevance, and exports survey-ready Excel workbooks -- no "
+    "scheduler needed, just run this once a day."
 )
+
+# Status only -- toggling either feature is done in config/settings.json
+# (use_llm_relevance_filter / use_llm_genz_scoring), not from this UI.
+_llm_relevance_active = get_groq_client(settings, "use_llm_relevance_filter") is not None
+_llm_genz_active = get_groq_client(settings, "use_llm_genz_scoring") is not None
+if _llm_relevance_active or _llm_genz_active:
+    st.caption(
+        f"LLM scoring: ON (Groq, model: {settings.get('groq_model', 'llama-3.1-8b-instant')}) -- "
+        f"relevance filter {'on' if _llm_relevance_active else 'off'}, "
+        f"GenZ scoring {'on' if _llm_genz_active else 'off'}"
+    )
+else:
+    st.caption("LLM scoring: OFF (no GROQ_API_KEY found, or disabled in settings) -- rule-based scoring only.")
 
 sectors = load_sectors()
 with st.expander(f"{len(sectors)} configured sectors"):

@@ -18,6 +18,12 @@
     "sectors": ["Science & Space", "World News"],
     "min_candidates": 30
   },
+  "groq_model": "llama-3.1-8b-instant",
+  "groq_request_delay_seconds": 0.3,
+  "groq_max_retries": 3,
+  "use_llm_relevance_filter": true,
+  "use_llm_genz_scoring": true,
+  "llm_genz_scoring_top_n": 100,
   "output_dir": "output",
   "log_file": "logs/pipeline.log",
   "schedule_time": "07:00"

@@ -14,6 +14,7 @@ genz_india_news/output/*.xlsx
 genz_india_news/data/*.csv
 genz_india_news/data/survey_responses/*.csv
 genz_india_news/data/survey_responses/*.xlsx
+genz_india_news/data/embeddings_cache.jsonl
 genz_india_news/logs/*.log
 genz_india_news/*.log
 genz_india_news/config/*.bak
