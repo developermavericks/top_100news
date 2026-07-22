@@ -99,6 +99,7 @@ def fetch_publication_rss(
                     "fetch_method": "direct_rss",
                     "_pub_india_weight": pub.get("india_weight", 0.0),
                     "_pub_genz_weight": pub.get("genz_weight", 0.0),
+                    "_pub_topic_scope": pub.get("topic_scope", "dedicated"),
                 }
                 for entry in in_window
             ]
@@ -176,6 +177,7 @@ def fetch_site_restricted(
                         "fetch_method": "google_news_site_restricted",
                         "_pub_india_weight": pub.get("india_weight", 0.0),
                         "_pub_genz_weight": pub.get("genz_weight", 0.0),
+                        "_pub_topic_scope": pub.get("topic_scope", "dedicated"),
                     }
                 )
             logger.info(
@@ -199,6 +201,9 @@ def fetch_site_restricted(
     return []
 
 
+DEFAULT_MAX_CANDIDATES_PER_PUBLICATION = 40
+
+
 def fetch_sector_publications(
     sector: str,
     publications: list[dict[str, Any]],
@@ -207,12 +212,22 @@ def fetch_sector_publications(
     request_settings: dict,
     candidate_pool_size: int,
     lookback_hours: int | None = None,
+    max_candidates_per_publication: int = DEFAULT_MAX_CANDIDATES_PER_PUBLICATION,
 ) -> list[dict[str, Any]]:
     """Fetch every candidate for a sector from ONLY its curated publisher
     list: direct RSS where a publication has a confirmed feed, a domain-
     restricted Google News query (batched across all no-feed publications,
     one query per keyword) otherwise. Merges, dedupes by normalized
-    headline, and caps at candidate_pool_size."""
+    headline, caps each publication's contribution at
+    max_candidates_per_publication, then caps the total at
+    candidate_pool_size.
+
+    The per-publication cap matters: publications are fetched in list order
+    and a single high-volume source (e.g. a general newspaper's full daily
+    feed, easily 200 items) would otherwise fill the entire candidate_pool_size
+    budget by itself before any other curated publication gets a chance to
+    contribute -- confirmed happening to Indian Express in the Entertainment
+    sector, silently crowding out all 12 other curated sources every run."""
     if not publications:
         logger.warning("Sector '%s' has no curated publications configured; returning no candidates.", sector)
         return []
@@ -241,10 +256,24 @@ def fetch_sector_publications(
             continue
         deduped[key] = article
 
-    candidates = list(deduped.values())[:candidate_pool_size]
+    per_pub_counts: dict[str, int] = {}
+    balanced: list[dict[str, Any]] = []
+    capped_out = 0
+    for article in deduped.values():
+        name = article.get("source", "")
+        per_pub_counts[name] = per_pub_counts.get(name, 0) + 1
+        if per_pub_counts[name] <= max_candidates_per_publication:
+            balanced.append(article)
+        else:
+            capped_out += 1
+
+    candidates = balanced[:candidate_pool_size]
     logger.info(
-        "Sector '%s': %d raw articles -> %d deduped -> %d after pool cap "
+        "Sector '%s': %d raw articles -> %d deduped -> %d after per-publication cap "
+        "(%d dropped, max %d/publication) -> %d after pool cap "
         "(%d publications: %d direct RSS, %d site-restricted)",
-        sector, len(all_articles), len(deduped), len(candidates), len(publications), len(with_rss), len(without_rss),
+        sector, len(all_articles), len(deduped), len(balanced), capped_out,
+        max_candidates_per_publication, len(candidates),
+        len(publications), len(with_rss), len(without_rss),
     )
     return candidates

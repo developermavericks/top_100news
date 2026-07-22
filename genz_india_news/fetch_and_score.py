@@ -33,7 +33,7 @@ from fetcher import fetch_sector_candidates
 from genz_scorer import combine_genz_score, compute_genz_source_and_topic_scores
 from india_scorer import compute_india_score
 from publication_fetcher import fetch_sector_publications
-from text_utils import headline_id, normalize_headline
+from text_utils import count_keyword_matches, headline_id, normalize_headline
 
 logger = logging.getLogger("genz_india_news.fetch_and_score")
 
@@ -101,6 +101,37 @@ def score_sector(
     return candidates
 
 
+def _gate_general_sources(
+    candidates: list[dict[str, Any]], sector_keywords: list[str]
+) -> list[dict[str, Any]]:
+    """Drop articles from a "general" (multi-topic) curated source -- a wire
+    service or general newspaper included for its sector-relevant slice, not
+    because everything it publishes belongs here -- unless the headline
+    actually matches one of this sector's own keywords. Without this, a
+    trusted general source's off-topic output (sports, unrelated politics,
+    other wire stories) still scores well on source-trust alone and leaks
+    into a sector it has nothing to do with (confirmed: Reuters' UEFA/
+    Coca-Cola stories ranking near the top of the AI sector). Sector-
+    dedicated sources (the default, unset) are exempt -- their whole output
+    already belongs to the sector even when a given headline doesn't happen
+    to contain one of the sector's narrow search keywords verbatim.
+
+    Applied before the thin-pool-fallback check in run_pipeline, not inside
+    score_sector, so that check sees the pool size the gate actually leaves
+    behind rather than the pre-gate count."""
+    kept = []
+    dropped = 0
+    for article in candidates:
+        if article.get("_pub_topic_scope") == "general":
+            if count_keyword_matches(article.get("headline", ""), sector_keywords) == 0:
+                dropped += 1
+                continue
+        kept.append(article)
+    if dropped:
+        logger.info("Gated out %d off-topic article(s) from general/multi-topic sources.", dropped)
+    return kept
+
+
 def _merge_dedupe(primary: list[dict[str, Any]], secondary: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Merge `secondary` into `primary`, keeping primary's copy of any
     headline both share. Used to top up a thin curated-publisher pool with
@@ -128,6 +159,7 @@ def run_pipeline() -> dict[str, list[dict[str, Any]]]:
     publications = load_publications()
 
     candidate_pool_size = settings.get("candidate_pool_size", 200)
+    max_candidates_per_publication = settings.get("max_candidates_per_publication", 40)
     max_headlines_per_sector = settings.get("max_headlines_per_sector", 100)
     locale = settings.get("locale", {"hl": "en", "gl": "IN", "ceid": "IN:en"})
     request_settings = settings.get("request", {})
@@ -147,8 +179,9 @@ def run_pipeline() -> dict[str, list[dict[str, Any]]]:
             # first, a site:-restricted Google News query as fallback.
             candidates = fetch_sector_publications(
                 sector, sector_publications, keywords, locale, request_settings,
-                candidate_pool_size, news_lookback_hours,
+                candidate_pool_size, news_lookback_hours, max_candidates_per_publication,
             )
+            candidates = _gate_general_sources(candidates, keywords)
             # A handful of sectors are dominated by sources that rarely
             # produce indexed news (academic journals, literature indexes)
             # and can come up thin some days -- for those specifically,

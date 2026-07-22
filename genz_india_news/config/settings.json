@@ -1,5 +1,6 @@
 {
   "candidate_pool_size": 200,
+  "max_candidates_per_publication": 40,
   "max_headlines_per_sector": 100,
   "locale": {
     "hl": "en",
@@ -14,7 +15,7 @@
   },
   "news_lookback_hours": 24,
   "thin_pool_fallback": {
-    "sectors": ["Science & Space"],
+    "sectors": ["Science & Space", "World News"],
     "min_candidates": 30
   },
   "output_dir": "output",
